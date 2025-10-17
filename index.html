@@ -129,7 +129,7 @@
 
   <script>
   ;(() => {
-    // ====== 설정 (필요시 수정) ======
+    // ====== 설정 ======
     const CONFIG = {
       baseSpeed: 240,        // px/s 시작 속도(커터)
       speedGain: 100,         // 컷마다 속도 증가
@@ -138,18 +138,15 @@
       scoreMaxBonus: 400,    // 균등 보너스 최대치 (총 1000점 만점 느낌)
       cutterWidth: 3,        // 커터 세로선 두께
       cutterGlow: true,      // 글로우 효과 켜기
-      spriteUrl: "assets/baguette.png", // 🖼️ 바게트 스프라이트(빌드시 교체)
-      sfx: {
-        cut: "assets/cut.wav",
-        good: "assets/good.wav",
-        fail: "assets/fail.wav"
-      }
-    }
+      spriteUrl: "assets/baguette.png",
+      sfx: { cut: "assets/cut.wav", good: "assets/good.wav", fail: "assets/fail.wav" }
+    };
 
-    // ====== 상태 ======
+    // ====== 엘리먼트 ======
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const wrap = document.getElementById('wrap');
+
     const hudSc = document.getElementById('sc');
     const hudCuts = document.getElementById('cuts');
     const hudSpd = document.getElementById('spd');
@@ -161,6 +158,7 @@
     const btnMute = document.getElementById('btnMute');
     const btnBgmTop = document.getElementById('btnBgmTop');
     const btnBgm = document.getElementById('btnBgm');
+
     const ribbonBonus = document.getElementById('bonus');
     const finalScore = document.getElementById('finalScore');
     const finalCuts = document.getElementById('finalCuts');
@@ -171,128 +169,54 @@
     const sFail = document.getElementById('sFail');
     const bgm = document.getElementById('bgm');
 
-    // SFX 파일 경로 적용(빈 파일이어도 무관)
+    // 오디오 경로
     sCut.src = CONFIG.sfx.cut; sGood.src = CONFIG.sfx.good; sFail.src = CONFIG.sfx.fail;
-    bgm.src = 'assets/bgm.mp3'; // 교체해서 사용
+    bgm.src = 'assets/bgm.mp3';
 
+    // ====== 상태 ======
     let isMuted = false;
     let isBgmOn = false;
-    const play = (a) => { if (!isMuted && a && a.play) { a.currentTime = 0; a.play().catch(()=>{}); } };
+    let isPortrait = window.matchMedia('(orientation: portrait)').matches;
 
-    function setMuted(next) {
-      isMuted = next;
-      btnMute.textContent = isMuted ? '🔇 효과음 켜기' : '🔈 효과음 끄기';
-    }
+    // 논리 해상도(세로: 720x1280, 가로: 1280x720)
+    let W = isPortrait ? 720 : 1280;
+    let H = isPortrait ? 1280 : 720;
 
-    function setBgm(next){
-      isBgmOn = next;
-      const label = isBgmOn ? '🎵 음악 끄기' : '🎵 음악 켜기';
-      btnBgmTop.textContent = label;
-      btnBgm.textContent = label;
-      if (isBgmOn) { bgm.volume = 0.7; bgm.play().catch(()=>{}); }
-      else { bgm.pause(); }
-    }
-
-    // 화면 스케일(DPR) 대응
-    function resizeCanvas() {
-      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-      const w = 1280, h = 720;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    // 레이아웃: 화면/안전영역에 맞춰 16:9 컨테이너 최대화 (세로모드 최적화)
-    function setWrapSize(){
-      const vw = window.innerWidth; const vh = window.innerHeight;
-      const rs = getComputedStyle(document.documentElement);
-      const safeTop = parseInt(rs.getPropertyValue('--safe-top')) || 0;
-      const safeBottom = parseInt(rs.getPropertyValue('--safe-bottom')) || 0;
-      const safeLeft = parseInt(rs.getPropertyValue('--safe-left')) || 0;
-      const safeRight = parseInt(rs.getPropertyValue('--safe-right')) || 0;
-      const pad = 8; // 기본 패딩
-      const availW = vw - Math.max(pad, safeLeft) - Math.max(pad, safeRight);
-      const availH = vh - Math.max(pad, safeTop) - Math.max(pad, safeBottom);
-      const ar = 16/9;
-      let w = availW; let h = Math.round(w / ar);
-      if (h > availH) { h = availH; w = Math.round(h * ar); }
-      wrap.style.width = w + 'px';
-      wrap.style.height = h + 'px';
-    }
-    window.addEventListener('resize', setWrapSize); setWrapSize();
-
-    // 바게트 스프라이트 로드(없으면 그라디언트로 대체)
-    const baguetteImg = new Image();
-    let spriteReady = false;
-    baguetteImg.onload = () => { spriteReady = true; };
-    baguetteImg.onerror = () => { spriteReady = false; };
-    baguetteImg.src = CONFIG.spriteUrl;
-
-    const W = 1280, H = 720; // 논리 크기는 유지하고, 실제 표시폭은 CSS로 약간 축소
-
-    const GameState = {
-      Idle: 'idle',
-      Running: 'running',
-      Over: 'over'
-    };
-
+    const GameState = { Idle: 'idle', Running: 'running', Over: 'over' };
     let state = GameState.Idle;
 
-    // 남은 조각(바게트) 모델: x,y는 중심 기준
-    const baguette = {
-      x: W/2,
-      y: H/2,
-      width: 780,
-      height: 120
-    };
+    // 조작 가드(시작 직후 탭 무시)
+    let inputLockUntil = 0;
+    const lockInput = (ms=300) => { inputLockUntil = performance.now() + ms; };
 
-    // 최초 바게트의 기준 범위(화면 좌표)
+    // 게임 모델
+    const baguette = { x: W/2, y: H/2, width: 780, height: 120 };
     let baseLeft = baguette.x - baguette.width/2;
     let baseRight = baguette.x + baguette.width/2;
-
-    // 실제로 남아있는 조각의 현재 범위(화면 좌표)
     let pieceLeft = baseLeft;
     let pieceRight = baseRight;
-
-    // 커터(세로줄) 이동 가능 범위: 최초 바게트 폭에서 크게 벗어나지 않도록 패딩만 추가
-    const boundPad = 12; // 약간의 여유
+    const boundPad = 12;
     let moveMinX = baseLeft - boundPad;
     let moveMaxX = baseRight + boundPad;
 
-    // 커터(세로줄)
-    let cutter = {
-      x: moveMinX, // 초기 위치: 좌측에서 시작
-      dir: 1,     // 1: 오른쪽, -1: 왼쪽
-      speed: CONFIG.baseSpeed
-    };
-
+    let cutter = { x: moveMinX, dir: 1, speed: CONFIG.baseSpeed };
 
     let score = 0;
     let cuts = 0;
     let lastBonus = 0;
 
-    function resetGame(toTitle = false) {
-      // 바게트 초기화
-      baguette.x = W/2; baguette.y = H/2; baguette.width = 780; baguette.height = 120;
-      // 기준/조각 범위 재계산
-      baseLeft = baguette.x - baguette.width/2;
-      baseRight = baguette.x + baguette.width/2;
-      pieceLeft = baseLeft; pieceRight = baseRight;
-      moveMinX = baseLeft - boundPad; moveMaxX = baseRight + boundPad;
-      // 커터 초기화(좌측에서 시작)
-      cutter.x = moveMinX; cutter.dir = 1; cutter.speed = CONFIG.baseSpeed;
-      score = 0; cuts = 0; lastBonus = 0;
-      updateHud();
-      lastGrade.textContent = '-'; lastGrade.className = 'grade';
-      if (toTitle) { state = GameState.Idle; showStart(); } else { hideStart(); state = GameState.Running; }
-      hideOver();
-    } 
+    // ====== 유틸 ======
+    const play = (a) => { if (!isMuted && a && a.play) { a.currentTime = 0; a.play().catch(()=>{}); } };
+    function setMuted(next) { isMuted = next; btnMute.textContent = isMuted ? '🔇 효과음 켜기' : '🔈 효과음 끄기'; }
+    function setBgm(next) {
+      isBgmOn = next;
+      const label = isBgmOn ? '🎵 음악 끄기' : '🎵 음악 켜기';
+      if (btnBgmTop) btnBgmTop.textContent = label;
+      if (btnBgm) btnBgm.textContent = label;
+      if (isBgmOn) { bgm.volume = 0.7; bgm.play().catch(()=>{}); } else { bgm.pause(); }
+    }
 
-    function updateHud() {
+    function updateHud(){
       hudSc.textContent = Math.floor(score);
       hudCuts.textContent = cuts;
       hudSpd.textContent = Math.round(cutter.speed) + ' px/s';
@@ -304,191 +228,155 @@
     function showOver(){ overPanel.classList.remove('hide'); }
     function hideOver(){ overPanel.classList.add('hide'); }
 
-    // 등급 문자열
-    function gradeFromBonus(b) {
-      if (b >= 850) return 'S';
-      if (b >= 700) return 'A';
-      if (b >= 500) return 'B';
-      if (b >= 300) return 'C';
-      return 'D';
+    // 등급
+    function gradeFromBonus(b){ if (b>=850) return 'S'; if (b>=700) return 'A'; if (b>=500) return 'B'; if (b>=300) return 'C'; return 'D'; }
+
+    // ====== 캔버스/레이아웃 ======
+    function resizeCanvas(){
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    // 자르기 처리
-    function cutNow() {
+    function setWrapSize(){
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const ar = isPortrait ? (9/16) : (16/9);
+      let w = vw, h = Math.round(w / ar);
+      if (h > vh) { h = vh; w = Math.round(h * ar); }
+      wrap.style.width = w + 'px';
+      wrap.style.height = h + 'px';
+    }
+
+    function detectOrientation(){
+      const next = window.matchMedia('(orientation: portrait)').matches;
+      if (next !== isPortrait){
+        isPortrait = next;
+        W = isPortrait ? 720 : 1280;
+        H = isPortrait ? 1280 : 720;
+        resetGame(true); // 방향 전환 안전 리셋
+      }
+    }
+
+    function resizeAll(){ detectOrientation(); resizeCanvas(); setWrapSize(); }
+    window.addEventListener('resize', resizeAll);
+
+    // ====== 스프라이트 ======
+    const baguetteImg = new Image();
+    let spriteReady = false;
+    baguetteImg.onload = () => { spriteReady = true; };
+    baguetteImg.onerror = () => { spriteReady = false; };
+    baguetteImg.src = CONFIG.spriteUrl;
+
+    // ====== 게임 로직 ======
+    function resetGame(toTitle=false){
+      // 바게트/경계 재설정 (새 W/H 반영)
+      baguette.x = W/2; baguette.y = H/2; baguette.width = 780; baguette.height = 120;
+      baseLeft = baguette.x - baguette.width/2; baseRight = baguette.x + baguette.width/2;
+      pieceLeft = baseLeft; pieceRight = baseRight;
+      moveMinX = baseLeft - boundPad; moveMaxX = baseRight + boundPad;
+      cutter = { x: moveMinX, dir: 1, speed: CONFIG.baseSpeed };
+      score = 0; cuts = 0; lastBonus = 0; updateHud();
+      lastGrade.textContent = '-'; lastGrade.className = 'grade';
+      hideOver();
+      if (toTitle) { state = GameState.Idle; showStart(); } else { hideStart(); state = GameState.Running; }
+      resizeAll();
+    }
+
+    function cutNow(){
       if (state !== GameState.Running) return;
       const cutX = Math.round(cutter.x);
-
-      // 남은 조각 범위
-      const left = pieceLeft;
-      const right = pieceRight;
-
-      // 범위 밖이면 게임오버
-      if (cutX <= left || cutX >= right) {
-        play(sFail);
-        endGame();
-        return;
-      }
-
-      // 왼/오 잔여 폭 (화면 좌표 기준)
-      const leftW = cutX - left;
-      const rightW = right - cutX;
-
-      // 더 작은 조각만 남김
+      const left = pieceLeft, right = pieceRight;
+      if (cutX <= left || cutX >= right){ play(sFail); endGame(); return; }
+      const leftW = cutX - left; const rightW = right - cutX;
       const keepLeft = leftW <= rightW;
-
-      // 균등 보너스 (작을수록 균등)
-      const r = Math.min(leftW, rightW) / Math.max(leftW, rightW); // 0..1
+      const r = Math.min(leftW, rightW) / Math.max(leftW, rightW);
       const bonus = Math.round(CONFIG.scoreMaxBonus * r);
       lastBonus = bonus;
-
-      // 점수 갱신
-      score += CONFIG.scoreBase + bonus;
-      cuts += 1;
-
-      // 남은 조각 범위 갱신 (기준 좌표로 보존)
-      if (keepLeft) {
-        pieceRight = cutX; // 좌측 조각만 유지
-      } else {
-        pieceLeft = cutX;  // 우측 조각만 유지
-      }
-
-      // 바게트의 표시용 중심/폭 재계산(왜곡 없이 실좌표 반영)
+      score += CONFIG.scoreBase + bonus; cuts += 1;
+      if (keepLeft) pieceRight = cutX; else pieceLeft = cutX;
       baguette.width = Math.max(CONFIG.minPieceWidth, pieceRight - pieceLeft);
       baguette.x = pieceLeft + baguette.width/2;
-
-      // 속도 증가
       cutter.speed += CONFIG.speedGain;
-
-      // 커터를 초기 위치로 재배치(좌측에서 다시 시작)
       cutter.x = moveMinX; cutter.dir = 1;
-
-      // 성공 SFX
-      play(sCut);
-      if (bonus >= 700) play(sGood);
-
+      play(sCut); if (bonus >= 700) play(sGood);
       updateHud();
     }
 
-    function endGame() {
+    function endGame(){
       state = GameState.Over;
       finalScore.textContent = Math.floor(score);
       finalCuts.textContent = cuts;
-      const g = gradeFromBonus(lastBonus);
-      lastGrade.textContent = g; lastGrade.className = 'grade ' + g;
+      const g = gradeFromBonus(lastBonus); lastGrade.textContent = g; lastGrade.className = 'grade ' + g;
       showOver();
     }
 
-    // 입력
+    // ====== 입력 ======
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') {
+      if (e.code === 'Space'){
         e.preventDefault();
-        if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
-        if (state === GameState.Running) { cutNow(); return; }
-        if (state === GameState.Over) { resetGame(false); return; }
+        if (state === GameState.Idle){ hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); lockInput(350); return; }
+        if (state === GameState.Running){ cutNow(); return; }
+        if (state === GameState.Over){ resetGame(false); lockInput(200); return; }
       }
-      if (e.key === 'r' || e.key === 'R') { resetGame(false); }
-      if (e.key === 'm' || e.key === 'M') { setMuted(!isMuted); }
-      if (e.key === 'b' || e.key === 'B') { setBgm(!isBgmOn); }
+      if (e.key === 'r' || e.key === 'R') resetGame(false);
+      if (e.key === 'm' || e.key === 'M') setMuted(!isMuted);
+      if (e.key === 'b' || e.key === 'B') setBgm(!isBgmOn);
     });
 
-    btnStart.addEventListener('click', () => { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); });
+    btnStart.addEventListener('click', () => { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); lockInput(350); });
     btnRestart?.addEventListener('click', () => resetGame(false));
     btnHome?.addEventListener('click', () => resetGame(true));
     btnMute.addEventListener('click', () => setMuted(!isMuted));
     btnBgmTop.addEventListener('click', ()=> setBgm(!isBgmOn));
     btnBgm.addEventListener('click', ()=> setBgm(!isBgmOn));
 
-    // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
     function handleTap(e){
       if (e && e.preventDefault) e.preventDefault();
-      // 버튼/링크/폼 위 탭은 무시 (기존 클릭 동작 유지)
+      if (performance.now() < inputLockUntil) return; // 시작 직후 탭 무시
       const blocked = e.target && e.target.closest && e.target.closest('button,a,input,textarea,select,label');
       if (blocked) return;
-      if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
-      if (state === GameState.Running) { cutNow(); return; }
-      if (state === GameState.Over) { resetGame(false); return; }
+      if (state === GameState.Idle){ hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); lockInput(350); return; }
+      if (state === GameState.Running){ cutNow(); return; }
+      if (state === GameState.Over){ resetGame(false); lockInput(200); return; }
     }
-    // 최신 브라우저: pointerdown 우선 + 레거시 터치
     document.addEventListener('pointerdown', handleTap, { passive: false });
-    document.addEventListener('touchstart', handleTap, { passive: false });
 
-    // 그리기 유틸
-    function drawCutter() {
-      const x = Math.round(cutter.x) + .5; // crisp line
+    // ====== 그리기 ======
+    function drawCutter(){
+      const x = Math.round(cutter.x) + .5;
       ctx.save();
-      if (CONFIG.cutterGlow) {
-        ctx.shadowColor = 'rgba(141,215,255,.6)';
-        ctx.shadowBlur = 12;
-      }
-      ctx.strokeStyle = '#8dd7ff';
-      ctx.lineWidth = CONFIG.cutterWidth;
-      ctx.beginPath();
-      ctx.moveTo(x, 120);
-      ctx.lineTo(x, H-120);
-      ctx.stroke();
-      ctx.restore();
-
-      // 머리표시(삼각)
-      ctx.save();
-      ctx.fillStyle = '#8dd7ff';
-      ctx.beginPath();
-      ctx.moveTo(x, 96); ctx.lineTo(x-8, 116); ctx.lineTo(x+8, 116); ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(x, H-96); ctx.lineTo(x-8, H-116); ctx.lineTo(x+8, H-116); ctx.closePath();
-      ctx.fill();
+      if (CONFIG.cutterGlow){ ctx.shadowColor = 'rgba(141,215,255,.6)'; ctx.shadowBlur = 12; }
+      ctx.strokeStyle = '#8dd7ff'; ctx.lineWidth = CONFIG.cutterWidth;
+      ctx.beginPath(); ctx.moveTo(x, 120); ctx.lineTo(x, H-120); ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.fillStyle = '#8dd7ff';
+      ctx.beginPath(); ctx.moveTo(x, 96); ctx.lineTo(x-8, 116); ctx.lineTo(x+8, 116); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x, H-96); ctx.lineTo(x-8, H-116); ctx.lineTo(x+8, H-116); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
 
-    function drawBaguette() {
-      const { y, height:h } = baguette;
-      const w = pieceRight - pieceLeft;
-      const x = pieceLeft + w/2;
-      const left = pieceLeft, top = y - h/2;
-
-      // 그림자 받침
-      ctx.save();
-      ctx.globalAlpha = .3;
-      ctx.fillStyle = '#000';
-      const shadowH = 14;
-      ctx.beginPath();
-      ctx.ellipse(x, y + h/2 + 16, w*0.9, shadowH, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
-
-      // 스프라이트를 '부분 잘라서' 표시(가로 왜곡 없이)
-      if (spriteReady) {
+    function drawBaguette(){
+      const { y, height:h } = baguette; const w = pieceRight - pieceLeft; const x = pieceLeft + w/2; const left = pieceLeft, top = y - h/2;
+      ctx.save(); ctx.globalAlpha = .3; ctx.fillStyle = '#000'; const shadowH = 14; ctx.beginPath(); ctx.ellipse(x, y + h/2 + 16, w*0.9, shadowH, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
+      if (spriteReady){
         const relStart = (pieceLeft - baseLeft) / (baseRight - baseLeft);
         const relEnd = (pieceRight - baseLeft) / (baseRight - baseLeft);
         const sx = Math.max(0, Math.floor(baguetteImg.width * relStart));
         const sw = Math.max(1, Math.floor(baguetteImg.width * (relEnd - relStart)));
-        const sy = 0;
-        const sh = baguetteImg.height;
+        const sy = 0; const sh = baguetteImg.height;
         ctx.drawImage(baguetteImg, sx, sy, sw, sh, left, top, w, h);
       } else {
-        // 대체 그라디언트(부분만 표시)
-        const g = ctx.createLinearGradient(left, top, left, top+h);
-        g.addColorStop(0, '#f6c27a');
-        g.addColorStop(1, '#e3a85a');
-        ctx.fillStyle = g;
-        roundRect(ctx, left, top, w, h, h/2);
-        ctx.fill();
-        // 단순 결무늬도 부분 비율로 표시
-        ctx.globalAlpha = .2; ctx.fillStyle = '#8b5e34';
-        const baseW = (baseRight - baseLeft);
-        for (let i=0;i<5;i++) {
-          const t = (i+1)/6; // 1/6, 2/6, ...
-          const rxBase = baseLeft + baseW*t;
-          if (rxBase > pieceLeft && rxBase < pieceRight) {
-            const rx = rxBase; // 화면 좌표 그대로
-            ctx.beginPath(); ctx.ellipse(rx, y, 10, h/3, 0, 0, Math.PI*2); ctx.fill();
-          }
-        }
+        const g = ctx.createLinearGradient(left, top, left, top+h); g.addColorStop(0, '#f6c27a'); g.addColorStop(1, '#e3a85a'); ctx.fillStyle = g;
+        roundRect(ctx, left, top, w, h, h/2); ctx.fill();
+        ctx.globalAlpha = .2; ctx.fillStyle = '#8b5e34'; const baseW = (baseRight - baseLeft);
+        for (let i=0;i<5;i++){ const t = (i+1)/6; const rxBase = baseLeft + baseW*t; if (rxBase > pieceLeft && rxBase < pieceRight){ const rx = rxBase; ctx.beginPath(); ctx.ellipse(rx, y, 10, h/3, 0, 0, Math.PI*2); ctx.fill(); } }
         ctx.globalAlpha = 1;
       }
     }
 
-    function roundRect(ctx, x, y, w, h, r) {
+    function roundRect(ctx, x, y, w, h, r){
       const rr = Math.min(r, h/2, w/2);
       ctx.beginPath();
       ctx.moveTo(x+rr, y);
@@ -499,53 +387,33 @@
       ctx.closePath();
     }
 
-    // 배경 요소
-    function drawBackground(t) {
-      // 그리드/스캔라인 느낌
-      ctx.save();
-      ctx.globalAlpha = .12;
-      ctx.strokeStyle = '#8dd7ff';
-      ctx.lineWidth = 1;
-      const gap = 40;
-      const phase = (t*0.05)%gap;
-      for (let x= (W%gap)-phase; x<W; x+=gap) {
-        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
-      }
+    function drawBackground(t){
+      ctx.save(); ctx.globalAlpha = .12; ctx.strokeStyle = '#8dd7ff'; ctx.lineWidth = 1; const gap = 40; const phase = (t*0.05)%gap;
+      for (let x=(W%gap)-phase; x<W; x+=gap){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
       ctx.globalAlpha = .06;
-      for (let y= (H%gap); y<H; y+=gap) {
-        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
-      }
+      for (let y=(H%gap); y<H; y+=gap){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
       ctx.restore();
     }
 
-    // 메인 루프
+    // ====== 루프 ======
     let lastTime = performance.now();
-    function tick(now) {
-      const dt = Math.min(1/30, (now - lastTime) / 1000);
-      lastTime = now;
-
-      // 업데이트
-      if (state === GameState.Running) {
+    function tick(now){
+      const dt = Math.min(1/30, (now - lastTime) / 1000); lastTime = now;
+      if (state === GameState.Running){
         cutter.x += cutter.dir * cutter.speed * dt;
         if (cutter.x <= moveMinX) { cutter.x = moveMinX; cutter.dir = 1; }
         if (cutter.x >= moveMaxX) { cutter.x = moveMaxX; cutter.dir = -1; }
       }
-
-      // 그리기
       ctx.clearRect(0,0,W,H);
       drawBackground(now/16);
-
-      // 남은 바게트(가운데 수평)
       drawBaguette();
-
-      // 커터
       drawCutter();
-
       requestAnimationFrame(tick);
     }
 
-    // 초기 상태로 시작
+    // ====== 시작 ======
     updateHud();
+    resizeAll();
     requestAnimationFrame(tick);
   })();
   </script>
