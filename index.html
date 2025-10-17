@@ -50,7 +50,7 @@
 
     .toast { position:absolute; left:50%; transform:translateX(-50%); bottom: 14px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); padding:8px 12px; border-radius:10px; backdrop-filter: blur(6px); }
 
-    .ribbon { position: absolute; left:50%; transform: translateX(-50%); top: 14px; padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.06); font-weight: 700; letter-spacing: .3px; }
+    .ribbon { position: absolute; left:50%; transform: translateX(-50%); top: 64px; padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.06); font-weight: 700; letter-spacing: .3px; z-index: 2; }
 
     .grade { font-weight: 900; font-size: 20px; }
     .grade.S { color: #8bffb9; }
@@ -104,7 +104,10 @@
   <!-- 🔊 오디오(빌드 시 교체해 사용) -->
   <audio id="sCut" preload="auto"></audio>
   <audio id="sGood" preload="auto"></audio>
-  <audio id="sFail" preload="auto"></audio>
+  <audio id=\"sFail\" preload=\"auto\"></audio>
+
+  <!-- 🎵 배경음악(BGM, 빌드시 교체) -->
+  <audio id=\"bgm\" preload=\"auto\" loop></audio>
 
   <script>
   ;(() => {
@@ -145,16 +148,29 @@
     const sCut = document.getElementById('sCut');
     const sGood = document.getElementById('sGood');
     const sFail = document.getElementById('sFail');
+    const bgm = document.getElementById('bgm');
 
     // SFX 파일 경로 적용(빈 파일이어도 무관)
     sCut.src = CONFIG.sfx.cut; sGood.src = CONFIG.sfx.good; sFail.src = CONFIG.sfx.fail;
+    bgm.src = 'assets/bgm.mp3'; // 교체해서 사용
 
     let isMuted = false;
+    let isBgmOn = false;
     const play = (a) => { if (!isMuted && a && a.play) { a.currentTime = 0; a.play().catch(()=>{}); } };
 
     function setMuted(next) {
       isMuted = next;
       btnMute.textContent = isMuted ? '🔇 효과음 켜기' : '🔈 효과음 끄기';
+    }
+
+    function setBgm(next){
+      isBgmOn = next;
+      const label = isBgmOn ? '🎵 음악 끄기' : '🎵 음악 켜기';
+      // 상단/시작패널 버튼 라벨 동기화
+      document.getElementById('btnBgmTop')?.replaceChildren(label);
+      document.getElementById('btnBgm')?.replaceChildren(label);
+      if (isBgmOn) { bgm.volume = 0.7; bgm.play().catch(()=>{}); }
+      else { bgm.pause(); }
     }
 
     // 화면 스케일(DPR) 대응
@@ -209,14 +225,14 @@
     let moveMaxX = baseRight + boundPad;
 
     // 커터(세로줄)
-    const cutter = {
+    let cutter = {
       x: moveMinX, // 초기 위치: 좌측에서 시작
       dir: 1,     // 1: 오른쪽, -1: 왼쪽
       speed: CONFIG.baseSpeed
     };
 
     // 커터(세로줄)
-    const cutter = {
+    let cutter = {
       x: W/2,
       dir: 1,     // 1: 오른쪽, -1: 왼쪽
       speed: CONFIG.baseSpeed
@@ -372,7 +388,10 @@
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') {
         e.preventDefault();
-        if (state === GameState.Idle) { hideStart(); state = GameState.Running; return; }
+        if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
+        if (state === GameState.Running) { cutNow(); return; }
+        if (state === GameState.Over) { resetGame(false); return; }
+      }
         if (state === GameState.Running) {
         cutter.x += cutter.dir * cutter.speed * dt;
         if (cutter.x <= moveMinX) { cutter.x = moveMinX; cutter.dir = 1; }
@@ -382,12 +401,47 @@
       }
       if (e.key === 'r' || e.key === 'R') { resetGame(false); }
       if (e.key === 'm' || e.key === 'M') { setMuted(!isMuted); }
+      if (e.key === 'b' || e.key === 'B') { setBgm(!isBgmOn); }
     });
 
-    btnStart.addEventListener('click', () => { hideStart(); state = GameState.Running; });
+    btnStart.addEventListener('click', () => { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); });
     btnRestart?.addEventListener('click', () => resetGame(false));
     btnHome?.addEventListener('click', () => resetGame(true));
     btnMute.addEventListener('click', () => setMuted(!isMuted));
+
+    // 상단바에 배경음 버튼 동적 추가
+    const topbar = document.querySelector('.topbar');
+    const btnBgmTop = document.createElement('button');
+    btnBgmTop.id = 'btnBgmTop';
+    btnBgmTop.textContent = '🎵 음악 켜기';
+    btnBgmTop.className = '';
+    btnBgmTop.style.pointerEvents = 'auto';
+    btnBgmTop.style.marginLeft = '8px';
+    topbar.appendChild(btnBgmTop);
+
+    // 시작 패널에도 BGM 버튼 추가(기존 행에 존재하면 무시)
+    const btnRow = startPanel.querySelector('.btnRow');
+    if (!document.getElementById('btnBgm')) {
+      const btnBgm = document.createElement('button');
+      btnBgm.id = 'btnBgm';
+      btnBgm.textContent = '🎵 음악 켜기';
+      btnRow.appendChild(btnBgm);
+    }
+
+    document.getElementById('btnBgmTop').addEventListener('click', ()=> setBgm(!isBgmOn));
+    document.getElementById('btnBgm')?.addEventListener('click', ()=> setBgm(!isBgmOn));
+
+    // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
+    function handleTap(e){
+      if (e && e.preventDefault) e.preventDefault();
+      const blocked = e.target && e.target.closest && e.target.closest('button,a,input,textarea,select,label');
+      if (blocked) return;
+      if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
+      if (state === GameState.Running) { cutNow(); return; }
+      if (state === GameState.Over) { resetGame(false); return; }
+    }
+    document.addEventListener('pointerdown', handleTap, { passive: false });
+    document.addEventListener('touchstart', handleTap, { passive: false });
 
     // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
     function handleTap(e){
