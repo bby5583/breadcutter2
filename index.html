@@ -21,7 +21,7 @@
       display: grid; place-items: center; overflow: hidden;
     }
     #wrap { position: relative; width: min(100vw, 980px); aspect-ratio: 16 / 9; }
-    canvas { width: 100%; height: 100%; display: block; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.45); background: linear-gradient(180deg, #101427, #0b0e1c 80%); }
+    canvas { width: 100%; height: auto; display: block; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.45); background: linear-gradient(180deg, #101427, #0b0e1c 80%); touch-action: manipulation; }
 
     .hud {
       position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-rows: auto 1fr auto; padding: 14px; gap: 8px;
@@ -60,7 +60,21 @@
     .grade.D { color: #ff9d8b; }
 
     .hide { display: none !important; }
-  </style>
+  :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); --safe-left: env(safe-area-inset-left); --safe-right: env(safe-area-inset-right); }
+
+@media (orientation: portrait) {
+  body { padding: calc(var(--safe-top) + 8px) max(8px, var(--safe-left)) calc(var(--safe-bottom) + 8px) max(8px, var(--safe-right)); }
+  #wrap { width: 100vw; height: 100vh; aspect-ratio: auto; }
+  .hud { padding: 10px; grid-template-rows: auto 1fr auto; }
+  .topbar { flex-wrap: wrap; gap: 6px; }
+  .pill { padding: 10px 14px; font-size: 14px; }
+  .title { font-size: 32px; }
+  button { padding: 14px 18px; font-size: 16px; }
+  .ribbon { top: auto; bottom: 96px; }
+  .toast { bottom: 12px; font-size: 14px; }
+}
+
+</style>
 </head>
 <body>
   <div id="wrap">
@@ -135,6 +149,7 @@
     // ====== 상태 ======
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+    const wrap = document.getElementById('wrap');
     const hudSc = document.getElementById('sc');
     const hudCuts = document.getElementById('cuts');
     const hudSpd = document.getElementById('spd');
@@ -190,6 +205,25 @@
     }
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+
+    // 레이아웃: 화면/안전영역에 맞춰 16:9 컨테이너 최대화 (세로모드 최적화)
+    function setWrapSize(){
+      const vw = window.innerWidth; const vh = window.innerHeight;
+      const rs = getComputedStyle(document.documentElement);
+      const safeTop = parseInt(rs.getPropertyValue('--safe-top')) || 0;
+      const safeBottom = parseInt(rs.getPropertyValue('--safe-bottom')) || 0;
+      const safeLeft = parseInt(rs.getPropertyValue('--safe-left')) || 0;
+      const safeRight = parseInt(rs.getPropertyValue('--safe-right')) || 0;
+      const pad = 8; // 기본 패딩
+      const availW = vw - Math.max(pad, safeLeft) - Math.max(pad, safeRight);
+      const availH = vh - Math.max(pad, safeTop) - Math.max(pad, safeBottom);
+      const ar = 16/9;
+      let w = availW; let h = Math.round(w / ar);
+      if (h > availH) { h = availH; w = Math.round(h * ar); }
+      wrap.style.width = w + 'px';
+      wrap.style.height = h + 'px';
+    }
+    window.addEventListener('resize', setWrapSize); setWrapSize();
 
     // 바게트 스프라이트 로드(없으면 그라디언트로 대체)
     const baguetteImg = new Image();
@@ -308,8 +342,7 @@
       lastBonus = bonus;
 
       // 점수 갱신
-     score = 2*score;
-     score += CONFIG.scoreBase + bonus;
+      score += CONFIG.scoreBase + bonus;
       cuts += 1;
 
       // 남은 조각 범위 갱신 (기준 좌표로 보존)
@@ -331,7 +364,7 @@
 
       // 성공 SFX
       play(sCut);
-      play(sGood);
+      if (bonus >= 700) play(sGood);
 
       updateHud();
     }
