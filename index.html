@@ -67,9 +67,12 @@
     <canvas id="game" width="1280" height="720" aria-label="Baguette Splitter"></canvas>
     <div class="hud">
       <div class="topbar">
-        <div class="pill"><b>점수</b><small id="sc">0</small></div>
-        <div class="pill"><b>컷</b><small id="cuts">0</small></div>
-        <div class="pill"><b>속도</b><small id="spd">0</small></div>
+        <div style="display:flex; gap:10px; align-items:center">
+          <div class="pill"><b>점수</b><small id="sc">0</small></div>
+          <div class="pill"><b>컷</b><small id="cuts">0</small></div>
+          <div class="pill"><b>속도</b><small id="spd">0</small></div>
+        </div>
+        <button id="btnBgmTop" style="pointer-events:auto">🎵 음악 켜기</button>
       </div>
       <div class="centerOverlay">
         <div id="startPanel" class="panel">
@@ -83,6 +86,7 @@
           <div class="btnRow">
             <button id="btnStart" class="btnPrimary">게임 시작</button>
             <button id="btnMute">🔈 효과음 끄기</button>
+            <button id="btnBgm">🎵 음악 켜기</button>
           </div>
         </div>
         <div id="gameOverPanel" class="panel hide">
@@ -104,18 +108,18 @@
   <!-- 🔊 오디오(빌드 시 교체해 사용) -->
   <audio id="sCut" preload="auto"></audio>
   <audio id="sGood" preload="auto"></audio>
-  <audio id=\"sFail\" preload=\"auto\"></audio>
+  <audio id="sFail" preload="auto"></audio>
 
   <!-- 🎵 배경음악(BGM, 빌드시 교체) -->
-  <audio id=\"bgm\" preload=\"auto\" loop></audio>
+  <audio id="bgm" preload="auto" loop></audio>
 
   <script>
   ;(() => {
     // ====== 설정 (필요시 수정) ======
     const CONFIG = {
       baseSpeed: 240,        // px/s 시작 속도(커터)
-      speedGain: 40,         // 컷마다 속도 증가
-      minPieceWidth: 16,     // 남은 조각 최소 폭(시각적 안정성)
+      speedGain: 100,         // 컷마다 속도 증가
+      minPieceWidth: 8,     // 남은 조각 최소 폭(시각적 안정성)
       scoreBase: 100,        // 기본 점수
       scoreMaxBonus: 900,    // 균등 보너스 최대치 (총 1000점 만점 느낌)
       cutterWidth: 3,        // 커터 세로선 두께
@@ -140,6 +144,8 @@
     const btnRestart = document.getElementById('btnRestart');
     const btnHome = document.getElementById('btnHome');
     const btnMute = document.getElementById('btnMute');
+    const btnBgmTop = document.getElementById('btnBgmTop');
+    const btnBgm = document.getElementById('btnBgm');
     const ribbonBonus = document.getElementById('bonus');
     const finalScore = document.getElementById('finalScore');
     const finalCuts = document.getElementById('finalCuts');
@@ -166,9 +172,8 @@
     function setBgm(next){
       isBgmOn = next;
       const label = isBgmOn ? '🎵 음악 끄기' : '🎵 음악 켜기';
-      // 상단/시작패널 버튼 라벨 동기화
-      document.getElementById('btnBgmTop')?.replaceChildren(label);
-      document.getElementById('btnBgm')?.replaceChildren(label);
+      btnBgmTop.textContent = label;
+      btnBgm.textContent = label;
       if (isBgmOn) { bgm.volume = 0.7; bgm.play().catch(()=>{}); }
       else { bgm.pause(); }
     }
@@ -231,12 +236,6 @@
       speed: CONFIG.baseSpeed
     };
 
-    // 커터(세로줄)
-    let cutter = {
-      x: W/2,
-      dir: 1,     // 1: 오른쪽, -1: 왼쪽
-      speed: CONFIG.baseSpeed
-    };
 
     let score = 0;
     let cuts = 0;
@@ -257,9 +256,7 @@
       lastGrade.textContent = '-'; lastGrade.className = 'grade';
       if (toTitle) { state = GameState.Idle; showStart(); } else { hideStart(); state = GameState.Running; }
       hideOver();
-    } else { hideStart(); state = GameState.Running; }
-      hideOver();
-    }
+    } 
 
     function updateHud() {
       hudSc.textContent = Math.floor(score);
@@ -333,44 +330,7 @@
 
       // 성공 SFX
       play(sCut);
-      if (bonus >= 700) play(sGood);
-
-      updateHud();
-    }
-
-      // 왼/오 잔여 폭
-      const leftW = Math.max(0, cutX - left);
-      const rightW = Math.max(0, right - cutX);
-
-      // 더 작은 조각만 남김(요구사항)
-      let keepLeft = leftW <= rightW;
-      let newWidth = keepLeft ? leftW : rightW; // 작은쪽 유지
-
-      // 균등 보너스 계산(1에 가까울수록 균등)
-      const r = Math.min(leftW, rightW) / Math.max(leftW, rightW); // 0..1
-      const bonus = Math.round(CONFIG.scoreMaxBonus * r);
-      lastBonus = bonus;
-
-      // 점수 갱신
-      score += CONFIG.scoreBase + bonus;
-      cuts += 1;
-
-      // 남은 조각 업데이트
-      if (keepLeft) {
-        // [left, cutX] 유지 → 중심 및 폭 재설정
-        baguette.x = left + newWidth/2;
-      } else {
-        // [cutX, right] 유지
-        baguette.x = right - newWidth/2;
-      }
-      baguette.width = Math.max(CONFIG.minPieceWidth, newWidth);
-
-      // 속도 증가
-      cutter.speed += CONFIG.speedGain;
-
-      // 성공 SFX
-      play(sCut);
-      if (bonus >= 700) play(sGood);
+      play(sGood);
 
       updateHud();
     }
@@ -392,13 +352,6 @@
         if (state === GameState.Running) { cutNow(); return; }
         if (state === GameState.Over) { resetGame(false); return; }
       }
-        if (state === GameState.Running) {
-        cutter.x += cutter.dir * cutter.speed * dt;
-        if (cutter.x <= moveMinX) { cutter.x = moveMinX; cutter.dir = 1; }
-        if (cutter.x >= moveMaxX) { cutter.x = moveMaxX; cutter.dir = -1; }
-      }
-        if (state === GameState.Over) { resetGame(false); return; }
-      }
       if (e.key === 'r' || e.key === 'R') { resetGame(false); }
       if (e.key === 'm' || e.key === 'M') { setMuted(!isMuted); }
       if (e.key === 'b' || e.key === 'B') { setBgm(!isBgmOn); }
@@ -408,40 +361,8 @@
     btnRestart?.addEventListener('click', () => resetGame(false));
     btnHome?.addEventListener('click', () => resetGame(true));
     btnMute.addEventListener('click', () => setMuted(!isMuted));
-
-    // 상단바에 배경음 버튼 동적 추가
-    const topbar = document.querySelector('.topbar');
-    const btnBgmTop = document.createElement('button');
-    btnBgmTop.id = 'btnBgmTop';
-    btnBgmTop.textContent = '🎵 음악 켜기';
-    btnBgmTop.className = '';
-    btnBgmTop.style.pointerEvents = 'auto';
-    btnBgmTop.style.marginLeft = '8px';
-    topbar.appendChild(btnBgmTop);
-
-    // 시작 패널에도 BGM 버튼 추가(기존 행에 존재하면 무시)
-    const btnRow = startPanel.querySelector('.btnRow');
-    if (!document.getElementById('btnBgm')) {
-      const btnBgm = document.createElement('button');
-      btnBgm.id = 'btnBgm';
-      btnBgm.textContent = '🎵 음악 켜기';
-      btnRow.appendChild(btnBgm);
-    }
-
-    document.getElementById('btnBgmTop').addEventListener('click', ()=> setBgm(!isBgmOn));
-    document.getElementById('btnBgm')?.addEventListener('click', ()=> setBgm(!isBgmOn));
-
-    // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
-    function handleTap(e){
-      if (e && e.preventDefault) e.preventDefault();
-      const blocked = e.target && e.target.closest && e.target.closest('button,a,input,textarea,select,label');
-      if (blocked) return;
-      if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
-      if (state === GameState.Running) { cutNow(); return; }
-      if (state === GameState.Over) { resetGame(false); return; }
-    }
-    document.addEventListener('pointerdown', handleTap, { passive: false });
-    document.addEventListener('touchstart', handleTap, { passive: false });
+    btnBgmTop.addEventListener('click', ()=> setBgm(!isBgmOn));
+    btnBgm.addEventListener('click', ()=> setBgm(!isBgmOn));
 
     // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
     function handleTap(e){
@@ -449,13 +370,12 @@
       // 버튼/링크/폼 위 탭은 무시 (기존 클릭 동작 유지)
       const blocked = e.target && e.target.closest && e.target.closest('button,a,input,textarea,select,label');
       if (blocked) return;
-      if (state === GameState.Idle) { hideStart(); state = GameState.Running; return; }
+      if (state === GameState.Idle) { hideStart(); state = GameState.Running; if (!isBgmOn) setBgm(true); return; }
       if (state === GameState.Running) { cutNow(); return; }
       if (state === GameState.Over) { resetGame(false); return; }
     }
-    // 최신 브라우저: pointerdown 우선
+    // 최신 브라우저: pointerdown 우선 + 레거시 터치
     document.addEventListener('pointerdown', handleTap, { passive: false });
-    // 레거시 iOS/안드로이드 호환
     document.addEventListener('touchstart', handleTap, { passive: false });
 
     // 그리기 유틸
@@ -532,52 +452,6 @@
         }
         ctx.globalAlpha = 1;
       }
-
-      // 경계선(남은 영역 시각화)
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,.18)';
-      ctx.lineWidth = 2;
-      roundRect(ctx, left, top, w, h, h/2);
-      ctx.stroke();
-      ctx.restore();
-    } = baguette;
-      const left = x - w/2, top = y - h/2;
-      // 그림자 받침
-      ctx.save();
-      ctx.globalAlpha = .3;
-      ctx.fillStyle = '#000';
-      const shadowH = 14;
-      ctx.beginPath();
-      ctx.ellipse(x, y + h/2 + 16, w*0.9, shadowH, 0, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
-
-      // 스프라이트 또는 대체 그라디언트
-      if (spriteReady) {
-        ctx.drawImage(baguetteImg, left, top, w, h);
-      } else {
-        const g = ctx.createLinearGradient(left, top, left, top+h);
-        g.addColorStop(0, '#f6c27a');
-        g.addColorStop(1, '#e3a85a');
-        ctx.fillStyle = g;
-        roundRect(ctx, left, top, w, h, h/2);
-        ctx.fill();
-        // 표면 결 무늬(간단)
-        ctx.globalAlpha = .2; ctx.fillStyle = '#8b5e34';
-        for (let i=0;i<5;i++) {
-          const rx = left + (i+1) * (w/6);
-          ctx.beginPath(); ctx.ellipse(rx, y, 10, h/3, 0, 0, Math.PI*2); ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-      }
-
-      // 경계선(남은 영역 시각화)
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,.18)';
-      ctx.lineWidth = 2;
-      roundRect(ctx, left, top, w, h, h/2);
-      ctx.stroke();
-      ctx.restore();
     }
 
     function roundRect(ctx, x, y, w, h, r) {
@@ -619,8 +493,8 @@
       // 업데이트
       if (state === GameState.Running) {
         cutter.x += cutter.dir * cutter.speed * dt;
-        if (cutter.x <= 40) { cutter.x = 40; cutter.dir = 1; }
-        if (cutter.x >= W-40) { cutter.x = W-40; cutter.dir = -1; }
+        if (cutter.x <= moveMinX) { cutter.x = moveMinX; cutter.dir = 1; }
+        if (cutter.x >= moveMaxX) { cutter.x = moveMaxX; cutter.dir = -1; }
       }
 
       // 그리기
@@ -635,11 +509,10 @@
 
       requestAnimationFrame(tick);
     }
+
+    // 초기 상태로 시작
+    updateHud();
     requestAnimationFrame(tick);
-
-    // 초기
-    showStart();
-
   })();
   </script>
 </body>
