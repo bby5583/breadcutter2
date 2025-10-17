@@ -295,6 +295,7 @@
       const r = Math.min(leftW, rightW) / Math.max(leftW, rightW);
       const bonus = Math.round(CONFIG.scoreMaxBonus * r);
       lastBonus = bonus;
+      score = 2*score;
       score += CONFIG.scoreBase + bonus; cuts += 1;
       if (keepLeft) pieceRight = cutX; else pieceLeft = cutX;
       baguette.width = Math.max(CONFIG.minPieceWidth, pieceRight - pieceLeft);
