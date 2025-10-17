@@ -20,7 +20,7 @@
       color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
       display: grid; place-items: center; overflow: hidden;
     }
-    #wrap { position: relative; width: min(100vw, 1100px); aspect-ratio: 16 / 9; }
+    #wrap { position: relative; width: min(100vw, 980px); aspect-ratio: 16 / 9; }
     canvas { width: 100%; height: 100%; display: block; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.45); background: linear-gradient(180deg, #101427, #0b0e1c 80%); }
 
     .hud {
@@ -177,7 +177,7 @@
     baguetteImg.onerror = () => { spriteReady = false; };
     baguetteImg.src = CONFIG.spriteUrl;
 
-    const W = 1280, H = 720;
+    const W = 1280, H = 720; // 논리 크기는 유지하고, 실제 표시폭은 CSS로 약간 축소
 
     const GameState = {
       Idle: 'idle',
@@ -195,6 +195,26 @@
       height: 120
     };
 
+    // 최초 바게트의 기준 범위(화면 좌표)
+    let baseLeft = baguette.x - baguette.width/2;
+    let baseRight = baguette.x + baguette.width/2;
+
+    // 실제로 남아있는 조각의 현재 범위(화면 좌표)
+    let pieceLeft = baseLeft;
+    let pieceRight = baseRight;
+
+    // 커터(세로줄) 이동 가능 범위: 최초 바게트 폭에서 크게 벗어나지 않도록 패딩만 추가
+    const boundPad = 12; // 약간의 여유
+    let moveMinX = baseLeft - boundPad;
+    let moveMaxX = baseRight + boundPad;
+
+    // 커터(세로줄)
+    const cutter = {
+      x: moveMinX, // 초기 위치: 좌측에서 시작
+      dir: 1,     // 1: 오른쪽, -1: 왼쪽
+      speed: CONFIG.baseSpeed
+    };
+
     // 커터(세로줄)
     const cutter = {
       x: W/2,
@@ -207,12 +227,21 @@
     let lastBonus = 0;
 
     function resetGame(toTitle = false) {
+      // 바게트 초기화
       baguette.x = W/2; baguette.y = H/2; baguette.width = 780; baguette.height = 120;
-      cutter.x = W/2; cutter.dir = 1; cutter.speed = CONFIG.baseSpeed;
+      // 기준/조각 범위 재계산
+      baseLeft = baguette.x - baguette.width/2;
+      baseRight = baguette.x + baguette.width/2;
+      pieceLeft = baseLeft; pieceRight = baseRight;
+      moveMinX = baseLeft - boundPad; moveMaxX = baseRight + boundPad;
+      // 커터 초기화(좌측에서 시작)
+      cutter.x = moveMinX; cutter.dir = 1; cutter.speed = CONFIG.baseSpeed;
       score = 0; cuts = 0; lastBonus = 0;
       updateHud();
       lastGrade.textContent = '-'; lastGrade.className = 'grade';
       if (toTitle) { state = GameState.Idle; showStart(); } else { hideStart(); state = GameState.Running; }
+      hideOver();
+    } else { hideStart(); state = GameState.Running; }
       hideOver();
     }
 
@@ -240,10 +269,11 @@
     // 자르기 처리
     function cutNow() {
       if (state !== GameState.Running) return;
-      // 바게트 범위
-      const left = baguette.x - baguette.width/2;
-      const right = baguette.x + baguette.width/2;
-      const cutX = cutter.x;
+      const cutX = Math.round(cutter.x);
+
+      // 남은 조각 범위
+      const left = pieceLeft;
+      const right = pieceRight;
 
       // 범위 밖이면 게임오버
       if (cutX <= left || cutX >= right) {
@@ -251,6 +281,46 @@
         endGame();
         return;
       }
+
+      // 왼/오 잔여 폭 (화면 좌표 기준)
+      const leftW = cutX - left;
+      const rightW = right - cutX;
+
+      // 더 작은 조각만 남김
+      const keepLeft = leftW <= rightW;
+
+      // 균등 보너스 (작을수록 균등)
+      const r = Math.min(leftW, rightW) / Math.max(leftW, rightW); // 0..1
+      const bonus = Math.round(CONFIG.scoreMaxBonus * r);
+      lastBonus = bonus;
+
+      // 점수 갱신
+      score += CONFIG.scoreBase + bonus;
+      cuts += 1;
+
+      // 남은 조각 범위 갱신 (기준 좌표로 보존)
+      if (keepLeft) {
+        pieceRight = cutX; // 좌측 조각만 유지
+      } else {
+        pieceLeft = cutX;  // 우측 조각만 유지
+      }
+
+      // 바게트의 표시용 중심/폭 재계산(왜곡 없이 실좌표 반영)
+      baguette.width = Math.max(CONFIG.minPieceWidth, pieceRight - pieceLeft);
+      baguette.x = pieceLeft + baguette.width/2;
+
+      // 속도 증가
+      cutter.speed += CONFIG.speedGain;
+
+      // 커터를 초기 위치로 재배치(좌측에서 다시 시작)
+      cutter.x = moveMinX; cutter.dir = 1;
+
+      // 성공 SFX
+      play(sCut);
+      if (bonus >= 700) play(sGood);
+
+      updateHud();
+    }
 
       // 왼/오 잔여 폭
       const leftW = Math.max(0, cutX - left);
@@ -303,7 +373,11 @@
       if (e.code === 'Space') {
         e.preventDefault();
         if (state === GameState.Idle) { hideStart(); state = GameState.Running; return; }
-        if (state === GameState.Running) { cutNow(); return; }
+        if (state === GameState.Running) {
+        cutter.x += cutter.dir * cutter.speed * dt;
+        if (cutter.x <= moveMinX) { cutter.x = moveMinX; cutter.dir = 1; }
+        if (cutter.x >= moveMaxX) { cutter.x = moveMaxX; cutter.dir = -1; }
+      }
         if (state === GameState.Over) { resetGame(false); return; }
       }
       if (e.key === 'r' || e.key === 'R') { resetGame(false); }
@@ -359,7 +433,60 @@
     }
 
     function drawBaguette() {
-      const {x, y, width:w, height:h} = baguette;
+      const { y, height:h } = baguette;
+      const w = pieceRight - pieceLeft;
+      const x = pieceLeft + w/2;
+      const left = pieceLeft, top = y - h/2;
+
+      // 그림자 받침
+      ctx.save();
+      ctx.globalAlpha = .3;
+      ctx.fillStyle = '#000';
+      const shadowH = 14;
+      ctx.beginPath();
+      ctx.ellipse(x, y + h/2 + 16, w*0.9, shadowH, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      // 스프라이트를 '부분 잘라서' 표시(가로 왜곡 없이)
+      if (spriteReady) {
+        const relStart = (pieceLeft - baseLeft) / (baseRight - baseLeft);
+        const relEnd = (pieceRight - baseLeft) / (baseRight - baseLeft);
+        const sx = Math.max(0, Math.floor(baguetteImg.width * relStart));
+        const sw = Math.max(1, Math.floor(baguetteImg.width * (relEnd - relStart)));
+        const sy = 0;
+        const sh = baguetteImg.height;
+        ctx.drawImage(baguetteImg, sx, sy, sw, sh, left, top, w, h);
+      } else {
+        // 대체 그라디언트(부분만 표시)
+        const g = ctx.createLinearGradient(left, top, left, top+h);
+        g.addColorStop(0, '#f6c27a');
+        g.addColorStop(1, '#e3a85a');
+        ctx.fillStyle = g;
+        roundRect(ctx, left, top, w, h, h/2);
+        ctx.fill();
+        // 단순 결무늬도 부분 비율로 표시
+        ctx.globalAlpha = .2; ctx.fillStyle = '#8b5e34';
+        const baseW = (baseRight - baseLeft);
+        for (let i=0;i<5;i++) {
+          const t = (i+1)/6; // 1/6, 2/6, ...
+          const rxBase = baseLeft + baseW*t;
+          if (rxBase > pieceLeft && rxBase < pieceRight) {
+            const rx = rxBase; // 화면 좌표 그대로
+            ctx.beginPath(); ctx.ellipse(rx, y, 10, h/3, 0, 0, Math.PI*2); ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // 경계선(남은 영역 시각화)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 2;
+      roundRect(ctx, left, top, w, h, h/2);
+      ctx.stroke();
+      ctx.restore();
+    } = baguette;
       const left = x - w/2, top = y - h/2;
       // 그림자 받침
       ctx.save();
