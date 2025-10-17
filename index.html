@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Baguette Splitter</title>
+  <style>
+    :root {
+      --bg: #0f1220;
+      --fg: #e7e9ee;
+      --accent: #8dd7ff;
+      --accent2: #ffc36b;
+      --danger: #ff6b6b;
+      --panel: #171a2b;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: radial-gradient(1200px 800px at 50% -200px, #1a1e34 0%, var(--bg) 60%);
+      color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+      display: grid; place-items: center; overflow: hidden;
+    }
+    #wrap { position: relative; width: min(100vw, 1100px); aspect-ratio: 16 / 9; }
+    canvas { width: 100%; height: 100%; display: block; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.45); background: linear-gradient(180deg, #101427, #0b0e1c 80%); }
+
+    .hud {
+      position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-rows: auto 1fr auto; padding: 14px; gap: 8px;
+    }
+    .topbar { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .pill { pointer-events: auto; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; padding: 8px 12px; display: inline-flex; gap: 10px; align-items: center; backdrop-filter: blur(6px); }
+    .pill b { color: var(--fg); }
+    .pill small { opacity: .8; }
+
+    .centerOverlay {
+      position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+    }
+    .panel { pointer-events: auto; background: rgba(12,14,30,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 18px; padding: 22px 20px; max-width: 520px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+    .title { font-weight: 800; font-size: 28px; letter-spacing: .2px; }
+    .muted { opacity: .85; }
+    .btnRow { display:flex; gap:10px; justify-content:center; margin-top: 14px; flex-wrap: wrap; }
+    button {
+      cursor: pointer; background: linear-gradient(180deg, #1f2445, #181c36); color: var(--fg); border: 1px solid rgba(255,255,255,.12);
+      border-radius: 12px; padding: 10px 16px; font-weight: 700; letter-spacing: .2px; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+      transition: transform .06s ease, box-shadow .06s ease, background .2s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(1px); box-shadow: 0 2px 8px rgba(0,0,0,.45); }
+    .btnPrimary { background: linear-gradient(180deg, #3b82f6, #2563eb); border-color: rgba(0,0,0,.15); color: white; }
+    .btnDanger { background: linear-gradient(180deg, #ef4444, #dc2626); color: white; }
+
+    .toast { position:absolute; left:50%; transform:translateX(-50%); bottom: 14px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); padding:8px 12px; border-radius:10px; backdrop-filter: blur(6px); }
+
+    .ribbon { position: absolute; left:50%; transform: translateX(-50%); top: 14px; padding: 6px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.06); font-weight: 700; letter-spacing: .3px; }
+
+    .grade { font-weight: 900; font-size: 20px; }
+    .grade.S { color: #8bffb9; }
+    .grade.A { color: #b4ff8b; }
+    .grade.B { color: #f7ff8b; }
+    .grade.C { color: #ffd38b; }
+    .grade.D { color: #ff9d8b; }
+
+    .hide { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="1280" height="720" aria-label="Baguette Splitter"></canvas>
+    <div class="hud">
+      <div class="topbar">
+        <div class="pill"><b>점수</b><small id="sc">0</small></div>
+        <div class="pill"><b>컷</b><small id="cuts">0</small></div>
+        <div class="pill"><b>속도</b><small id="spd">0</small></div>
+      </div>
+      <div class="centerOverlay">
+        <div id="startPanel" class="panel">
+          <div class="title">🥖 Baguette Splitter</div>
+          <p class="muted">스페이스바를 눌러 <b>세로 커터</b>를 멈추고, 바게트를 최대한 <b>균등하게</b> 잘라보세요.<br/>큰 조각은 사라지고 <b>작은 조각만</b> 남습니다.</p>
+          <ul style="text-align:left; line-height:1.7; margin: 12px 0 0 0; padding: 0 0 0 18px;">
+            <li><b>Space</b>: 자르기 / 진행</li>
+            <li><b>R</b>: 재시작</li>
+            <li><b>마우스</b>: 버튼 클릭</li>
+          </ul>
+          <div class="btnRow">
+            <button id="btnStart" class="btnPrimary">게임 시작</button>
+            <button id="btnMute">🔈 효과음 끄기</button>
+          </div>
+        </div>
+        <div id="gameOverPanel" class="panel hide">
+          <div class="title">게임 오버</div>
+          <p class="muted">커터가 바게트 밖에서 멈췄어요.</p>
+          <p style="margin:8px 0 0"><b>최종 점수</b>: <span id="finalScore">0</span> / <b>총 컷</b>: <span id="finalCuts">0</span></p>
+          <p style="margin:8px 0 0">마지막 컷 등급: <span id="lastGrade" class="grade">-</span></p>
+          <div class="btnRow">
+            <button id="btnRestart" class="btnPrimary">다시하기 (R)</button>
+            <button id="btnHome">타이틀로</button>
+          </div>
+        </div>
+      </div>
+      <div class="ribbon" id="ribbon">균등 보너스: <span id="bonus">0</span></div>
+      <div class="toast">자르기 위치가 <b>남은 조각 범위 밖</b>이면 즉시 게임오버!</div>
+    </div>
+  </div>
+
+  <!-- 🔊 오디오(빌드 시 교체해 사용) -->
+  <audio id="sCut" preload="auto"></audio>
+  <audio id="sGood" preload="auto"></audio>
+  <audio id="sFail" preload="auto"></audio>
+
+  <script>
+  ;(() => {
+    // ====== 설정 (필요시 수정) ======
+    const CONFIG = {
+      baseSpeed: 240,        // px/s 시작 속도(커터)
+      speedGain: 40,         // 컷마다 속도 증가
+      minPieceWidth: 16,     // 남은 조각 최소 폭(시각적 안정성)
+      scoreBase: 100,        // 기본 점수
+      scoreMaxBonus: 900,    // 균등 보너스 최대치 (총 1000점 만점 느낌)
+      cutterWidth: 3,        // 커터 세로선 두께
+      cutterGlow: true,      // 글로우 효과 켜기
+      spriteUrl: "assets/baguette.png", // 🖼️ 바게트 스프라이트(빌드시 교체)
+      sfx: {
+        cut: "assets/cut.wav",
+        good: "assets/good.wav",
+        fail: "assets/fail.wav"
+      }
+    }
+
+    // ====== 상태 ======
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const hudSc = document.getElementById('sc');
+    const hudCuts = document.getElementById('cuts');
+    const hudSpd = document.getElementById('spd');
+    const startPanel = document.getElementById('startPanel');
+    const overPanel = document.getElementById('gameOverPanel');
+    const btnStart = document.getElementById('btnStart');
+    const btnRestart = document.getElementById('btnRestart');
+    const btnHome = document.getElementById('btnHome');
+    const btnMute = document.getElementById('btnMute');
+    const ribbonBonus = document.getElementById('bonus');
+    const finalScore = document.getElementById('finalScore');
+    const finalCuts = document.getElementById('finalCuts');
+    const lastGrade = document.getElementById('lastGrade');
+
+    const sCut = document.getElementById('sCut');
+    const sGood = document.getElementById('sGood');
+    const sFail = document.getElementById('sFail');
+
+    // SFX 파일 경로 적용(빈 파일이어도 무관)
+    sCut.src = CONFIG.sfx.cut; sGood.src = CONFIG.sfx.good; sFail.src = CONFIG.sfx.fail;
+
+    let isMuted = false;
+    const play = (a) => { if (!isMuted && a && a.play) { a.currentTime = 0; a.play().catch(()=>{}); } };
+
+    function setMuted(next) {
+      isMuted = next;
+      btnMute.textContent = isMuted ? '🔇 효과음 켜기' : '🔈 효과음 끄기';
+    }
+
+    // 화면 스케일(DPR) 대응
+    function resizeCanvas() {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const w = 1280, h = 720;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // 바게트 스프라이트 로드(없으면 그라디언트로 대체)
+    const baguetteImg = new Image();
+    let spriteReady = false;
+    baguetteImg.onload = () => { spriteReady = true; };
+    baguetteImg.onerror = () => { spriteReady = false; };
+    baguetteImg.src = CONFIG.spriteUrl;
+
+    const W = 1280, H = 720;
+
+    const GameState = {
+      Idle: 'idle',
+      Running: 'running',
+      Over: 'over'
+    };
+
+    let state = GameState.Idle;
+
+    // 남은 조각(바게트) 모델: x,y는 중심 기준
+    const baguette = {
+      x: W/2,
+      y: H/2,
+      width: 780,
+      height: 120
+    };
+
+    // 커터(세로줄)
+    const cutter = {
+      x: W/2,
+      dir: 1,     // 1: 오른쪽, -1: 왼쪽
+      speed: CONFIG.baseSpeed
+    };
+
+    let score = 0;
+    let cuts = 0;
+    let lastBonus = 0;
+
+    function resetGame(toTitle = false) {
+      baguette.x = W/2; baguette.y = H/2; baguette.width = 780; baguette.height = 120;
+      cutter.x = W/2; cutter.dir = 1; cutter.speed = CONFIG.baseSpeed;
+      score = 0; cuts = 0; lastBonus = 0;
+      updateHud();
+      lastGrade.textContent = '-'; lastGrade.className = 'grade';
+      if (toTitle) { state = GameState.Idle; showStart(); } else { hideStart(); state = GameState.Running; }
+      hideOver();
+    }
+
+    function updateHud() {
+      hudSc.textContent = Math.floor(score);
+      hudCuts.textContent = cuts;
+      hudSpd.textContent = Math.round(cutter.speed) + ' px/s';
+      ribbonBonus.textContent = lastBonus;
+    }
+
+    function showStart(){ startPanel.classList.remove('hide'); }
+    function hideStart(){ startPanel.classList.add('hide'); }
+    function showOver(){ overPanel.classList.remove('hide'); }
+    function hideOver(){ overPanel.classList.add('hide'); }
+
+    // 등급 문자열
+    function gradeFromBonus(b) {
+      if (b >= 850) return 'S';
+      if (b >= 700) return 'A';
+      if (b >= 500) return 'B';
+      if (b >= 300) return 'C';
+      return 'D';
+    }
+
+    // 자르기 처리
+    function cutNow() {
+      if (state !== GameState.Running) return;
+      // 바게트 범위
+      const left = baguette.x - baguette.width/2;
+      const right = baguette.x + baguette.width/2;
+      const cutX = cutter.x;
+
+      // 범위 밖이면 게임오버
+      if (cutX <= left || cutX >= right) {
+        play(sFail);
+        endGame();
+        return;
+      }
+
+      // 왼/오 잔여 폭
+      const leftW = Math.max(0, cutX - left);
+      const rightW = Math.max(0, right - cutX);
+
+      // 더 작은 조각만 남김(요구사항)
+      let keepLeft = leftW <= rightW;
+      let newWidth = keepLeft ? leftW : rightW; // 작은쪽 유지
+
+      // 균등 보너스 계산(1에 가까울수록 균등)
+      const r = Math.min(leftW, rightW) / Math.max(leftW, rightW); // 0..1
+      const bonus = Math.round(CONFIG.scoreMaxBonus * r);
+      lastBonus = bonus;
+
+      // 점수 갱신
+      score += CONFIG.scoreBase + bonus;
+      cuts += 1;
+
+      // 남은 조각 업데이트
+      if (keepLeft) {
+        // [left, cutX] 유지 → 중심 및 폭 재설정
+        baguette.x = left + newWidth/2;
+      } else {
+        // [cutX, right] 유지
+        baguette.x = right - newWidth/2;
+      }
+      baguette.width = Math.max(CONFIG.minPieceWidth, newWidth);
+
+      // 속도 증가
+      cutter.speed += CONFIG.speedGain;
+
+      // 성공 SFX
+      play(sCut);
+      if (bonus >= 700) play(sGood);
+
+      updateHud();
+    }
+
+    function endGame() {
+      state = GameState.Over;
+      finalScore.textContent = Math.floor(score);
+      finalCuts.textContent = cuts;
+      const g = gradeFromBonus(lastBonus);
+      lastGrade.textContent = g; lastGrade.className = 'grade ' + g;
+      showOver();
+    }
+
+    // 입력
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (state === GameState.Idle) { hideStart(); state = GameState.Running; return; }
+        if (state === GameState.Running) { cutNow(); return; }
+        if (state === GameState.Over) { resetGame(false); return; }
+      }
+      if (e.key === 'r' || e.key === 'R') { resetGame(false); }
+      if (e.key === 'm' || e.key === 'M') { setMuted(!isMuted); }
+    });
+
+    btnStart.addEventListener('click', () => { hideStart(); state = GameState.Running; });
+    btnRestart?.addEventListener('click', () => resetGame(false));
+    btnHome?.addEventListener('click', () => resetGame(true));
+    btnMute.addEventListener('click', () => setMuted(!isMuted));
+
+    // 모바일/터치 지원: 화면을 탭하면 Space 동작과 동일하게 처리
+    function handleTap(e){
+      if (e && e.preventDefault) e.preventDefault();
+      // 버튼/링크/폼 위 탭은 무시 (기존 클릭 동작 유지)
+      const blocked = e.target && e.target.closest && e.target.closest('button,a,input,textarea,select,label');
+      if (blocked) return;
+      if (state === GameState.Idle) { hideStart(); state = GameState.Running; return; }
+      if (state === GameState.Running) { cutNow(); return; }
+      if (state === GameState.Over) { resetGame(false); return; }
+    }
+    // 최신 브라우저: pointerdown 우선
+    document.addEventListener('pointerdown', handleTap, { passive: false });
+    // 레거시 iOS/안드로이드 호환
+    document.addEventListener('touchstart', handleTap, { passive: false });
+
+    // 그리기 유틸
+    function drawCutter() {
+      const x = Math.round(cutter.x) + .5; // crisp line
+      ctx.save();
+      if (CONFIG.cutterGlow) {
+        ctx.shadowColor = 'rgba(141,215,255,.6)';
+        ctx.shadowBlur = 12;
+      }
+      ctx.strokeStyle = '#8dd7ff';
+      ctx.lineWidth = CONFIG.cutterWidth;
+      ctx.beginPath();
+      ctx.moveTo(x, 120);
+      ctx.lineTo(x, H-120);
+      ctx.stroke();
+      ctx.restore();
+
+      // 머리표시(삼각)
+      ctx.save();
+      ctx.fillStyle = '#8dd7ff';
+      ctx.beginPath();
+      ctx.moveTo(x, 96); ctx.lineTo(x-8, 116); ctx.lineTo(x+8, 116); ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x, H-96); ctx.lineTo(x-8, H-116); ctx.lineTo(x+8, H-116); ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawBaguette() {
+      const {x, y, width:w, height:h} = baguette;
+      const left = x - w/2, top = y - h/2;
+      // 그림자 받침
+      ctx.save();
+      ctx.globalAlpha = .3;
+      ctx.fillStyle = '#000';
+      const shadowH = 14;
+      ctx.beginPath();
+      ctx.ellipse(x, y + h/2 + 16, w*0.9, shadowH, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      // 스프라이트 또는 대체 그라디언트
+      if (spriteReady) {
+        ctx.drawImage(baguetteImg, left, top, w, h);
+      } else {
+        const g = ctx.createLinearGradient(left, top, left, top+h);
+        g.addColorStop(0, '#f6c27a');
+        g.addColorStop(1, '#e3a85a');
+        ctx.fillStyle = g;
+        roundRect(ctx, left, top, w, h, h/2);
+        ctx.fill();
+        // 표면 결 무늬(간단)
+        ctx.globalAlpha = .2; ctx.fillStyle = '#8b5e34';
+        for (let i=0;i<5;i++) {
+          const rx = left + (i+1) * (w/6);
+          ctx.beginPath(); ctx.ellipse(rx, y, 10, h/3, 0, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // 경계선(남은 영역 시각화)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.18)';
+      ctx.lineWidth = 2;
+      roundRect(ctx, left, top, w, h, h/2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      const rr = Math.min(r, h/2, w/2);
+      ctx.beginPath();
+      ctx.moveTo(x+rr, y);
+      ctx.arcTo(x+w, y, x+w, y+h, rr);
+      ctx.arcTo(x+w, y+h, x, y+h, rr);
+      ctx.arcTo(x, y+h, x, y, rr);
+      ctx.arcTo(x, y, x+w, y, rr);
+      ctx.closePath();
+    }
+
+    // 배경 요소
+    function drawBackground(t) {
+      // 그리드/스캔라인 느낌
+      ctx.save();
+      ctx.globalAlpha = .12;
+      ctx.strokeStyle = '#8dd7ff';
+      ctx.lineWidth = 1;
+      const gap = 40;
+      const phase = (t*0.05)%gap;
+      for (let x= (W%gap)-phase; x<W; x+=gap) {
+        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+      }
+      ctx.globalAlpha = .06;
+      for (let y= (H%gap); y<H; y+=gap) {
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 메인 루프
+    let lastTime = performance.now();
+    function tick(now) {
+      const dt = Math.min(1/30, (now - lastTime) / 1000);
+      lastTime = now;
+
+      // 업데이트
+      if (state === GameState.Running) {
+        cutter.x += cutter.dir * cutter.speed * dt;
+        if (cutter.x <= 40) { cutter.x = 40; cutter.dir = 1; }
+        if (cutter.x >= W-40) { cutter.x = W-40; cutter.dir = -1; }
+      }
+
+      // 그리기
+      ctx.clearRect(0,0,W,H);
+      drawBackground(now/16);
+
+      // 남은 바게트(가운데 수평)
+      drawBaguette();
+
+      // 커터
+      drawCutter();
+
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    // 초기
+    showStart();
+
+  })();
+  </script>
+</body>
+</html>
