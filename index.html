@@ -308,7 +308,8 @@
       lastBonus = bonus;
 
       // 점수 갱신
-      score += CONFIG.scoreBase + bonus;
+     score = 2*score;
+     score += CONFIG.scoreBase + bonus;
       cuts += 1;
 
       // 남은 조각 범위 갱신 (기준 좌표로 보존)
